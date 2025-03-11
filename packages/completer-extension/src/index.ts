@@ -6,8 +6,10 @@
  */
 
 import {
+  ISecretRegistry,
   JupyterFrontEnd,
-  JupyterFrontEndPlugin
+  JupyterFrontEndPlugin,
+  SecretRegistry
 } from '@jupyterlab/application';
 import { COMPLETER_ACTIVE_CLASS } from '@jupyterlab/codeeditor';
 import { CommandToolbarButton } from '@jupyterlab/ui-components';
@@ -47,19 +49,27 @@ namespace CommandIDs {
   export const invokeInline = 'inline-completer:invoke';
 }
 
-const defaultProviders: JupyterFrontEndPlugin<void> = {
-  id: '@jupyterlab/completer-extension:base-service',
-  description: 'Adds context and kernel completion providers.',
-  requires: [ICompletionProviderManager],
-  autoStart: true,
-  activate: (
-    app: JupyterFrontEnd,
-    completionManager: ICompletionProviderManager
-  ): void => {
-    completionManager.registerProvider(new ContextCompleterProvider());
-    completionManager.registerProvider(new KernelCompleterProvider());
-  }
-};
+const defaultProviders: JupyterFrontEndPlugin<void> = SecretRegistry.sign(
+  '@jupyterlab/completer-extension:base-service',
+  token => ({
+    id: '@jupyterlab/completer-extension:base-service',
+    description: 'Adds context and kernel completion providers.',
+    requires: [ICompletionProviderManager, ISecretRegistry],
+    autoStart: true,
+    activate: (
+      app: JupyterFrontEnd,
+      completionManager: ICompletionProviderManager,
+      secretRegistry: ISecretRegistry
+    ): void => {
+      completionManager.registerProvider(new ContextCompleterProvider());
+      completionManager.registerProvider(new KernelCompleterProvider());
+      void (async () => {
+        const secrets = await secretRegistry.get(token);
+        console.log('fetched secrets', secrets);
+      })();
+    }
+  })
+);
 
 const inlineHistoryProvider: JupyterFrontEndPlugin<void> = {
   id: '@jupyterlab/completer-extension:inline-history',

@@ -19,6 +19,7 @@ export {
   IMimeDocumentTracker
 } from './mimerenderers';
 export { Router } from './router';
+export * from './secrets';
 export { ILabShell, LabShell } from './shell';
 export * from './status';
 export * from './tokens';

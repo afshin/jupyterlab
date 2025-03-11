@@ -12,6 +12,7 @@ import {
   ILabStatus,
   ILayoutRestorer,
   IRouter,
+  ISecretRegistry,
   ITreePathUpdater,
   JupyterFrontEnd,
   JupyterFrontEndContextMenu,
@@ -19,7 +20,8 @@ import {
   JupyterLab,
   LabShell,
   LayoutRestorer,
-  Router
+  Router,
+  SecretRegistry
 } from '@jupyterlab/application';
 import {
   Dialog,
@@ -1335,7 +1337,12 @@ const plugins: JupyterFrontEndPlugin<any>[] = [
   paths,
   propertyInspector,
   jupyterLogo,
-  topbar
+  topbar,
+  {
+    id: SecretRegistry.EXTENSION,
+    provides: ISecretRegistry,
+    activate: app => new SecretRegistry(app)
+  }
 ];
 
 export default plugins;
