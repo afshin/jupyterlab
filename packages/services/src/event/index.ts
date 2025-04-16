@@ -23,13 +23,12 @@ export class EventManager implements Event.IManager {
   constructor(options: EventManager.IOptions = {}) {
     this.serverSettings =
       options.serverSettings ?? ServerConnection.makeSettings();
-
-    // If subscription fails, the poll attempts to reconnect and backs off.
-    this._poll = new Poll({ factory: () => this._subscribe() });
-    this._stream = new Stream(this);
-
-    // Subscribe to the events socket.
-    void this._poll.start();
+    const { appendToken, token, WebSocket, wsUrl } = this.serverSettings;
+    let url = URLExt.join(wsUrl, SERVICE_EVENTS_URL, 'subscribe');
+    if (appendToken && token !== '') {
+      url += `?token=${encodeURIComponent(token)}`;
+    }
+    this._stream = new Private.SocketStream(this, { url, WebSocket });
   }
 
   /**
@@ -41,7 +40,7 @@ export class EventManager implements Event.IManager {
    * Whether the event manager is disposed.
    */
   get isDisposed(): boolean {
-    return this._poll.isDisposed;
+    return this._stream.isDisposed;
   }
 
   /**
@@ -55,27 +54,7 @@ export class EventManager implements Event.IManager {
    * Dispose the event manager.
    */
   dispose(): void {
-    if (this.isDisposed) {
-      return;
-    }
-
-    // Clean up poll.
-    this._poll.dispose();
-
-    // Clean up socket.
-    const socket = this._socket;
-    if (socket) {
-      this._socket = null;
-      socket.onopen = () => undefined;
-      socket.onerror = () => undefined;
-      socket.onmessage = () => undefined;
-      socket.onclose = () => undefined;
-      socket.close();
-    }
-
-    // Clean up stream.
-    Signal.clearData(this);
-    this._stream.stop();
+    this._stream.dispose();
   }
 
   /**
@@ -94,31 +73,7 @@ export class EventManager implements Event.IManager {
     }
   }
 
-  /**
-   * Subscribe to event bus emissions.
-   */
-  private _subscribe(): Promise<void> {
-    return new Promise<void>((_, reject) => {
-      if (this.isDisposed) {
-        return;
-      }
-
-      const { appendToken, token, WebSocket, wsUrl } = this.serverSettings;
-      let url = URLExt.join(wsUrl, SERVICE_EVENTS_URL, 'subscribe');
-      if (appendToken && token !== '') {
-        url += `?token=${encodeURIComponent(token)}`;
-      }
-      const socket = (this._socket = new WebSocket(url));
-      const stream = this._stream;
-
-      socket.onclose = () => reject(new Error('EventManager socket closed'));
-      socket.onmessage = msg => msg.data && stream.emit(JSON.parse(msg.data));
-    });
-  }
-
-  private _poll: Poll;
-  private _socket: WebSocket | null = null;
-  private _stream: Stream<this, Event.Emission>;
+  private _stream: Private.SocketStream<this, Event.Emission>;
 }
 
 /**
@@ -177,5 +132,63 @@ export namespace Event {
      * Post an event request to be emitted by the event bus.
      */
     emit(event: Event.Request): Promise<void>;
+  }
+}
+
+namespace Private {
+  export class SocketStream<T, U> extends Stream<T, U> implements IDisposable {
+    constructor(sender: T, options: SocketStream.IOptions) {
+      super(sender);
+      this.options = options;
+      this.subscription = new Poll({ factory: () => this.subscribe() });
+    }
+
+    get isDisposed() {
+      return this.subscription.isDisposed;
+    }
+
+    dispose() {
+      super.stop();
+      this.subscription.dispose();
+      const { socket } = this;
+      if (socket) {
+        this.socket = null;
+        socket.onclose = () => undefined;
+        socket.onerror = () => undefined;
+        socket.onmessage = () => undefined;
+        socket.onopen = () => undefined;
+        socket.close();
+      }
+      Signal.clearData(this);
+    }
+
+    send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+      this.socket?.send(data);
+    }
+
+    protected readonly subscription: Poll;
+
+    protected readonly options: SocketStream.IOptions;
+
+    protected socket: WebSocket | null = null;
+
+    protected async subscribe(): Promise<void> {
+      if (this.isDisposed) {
+        return;
+      }
+      return new Promise<void>((_, reject) => {
+        const { url, WebSocket } = this.options;
+        const socket = (this.socket = new WebSocket(url));
+        socket.onclose = () => reject(new Error('socket closed'));
+        socket.onmessage = msg => msg.data && this.emit(JSON.parse(msg.data));
+      });
+    }
+  }
+
+  export namespace SocketStream {
+    export interface IOptions {
+      url: string;
+      WebSocket: typeof WebSocket;
+    }
   }
 }
